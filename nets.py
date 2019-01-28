@@ -2,7 +2,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch
 
-class Conv(nn.Module):
+class ConvBlock(nn.Module):
     def __init__(self, inc, outc, rep=2):
         super().__init__()
         layers = self.conv(inc, outc, times=rep)
@@ -28,32 +28,32 @@ class Conv(nn.Module):
 
 
 class Unet(nn.Module):
-    def __init__(self, image_size, ls):
+    def __init__(self, in_channels, ls):
         super().__init__()
 
         self.downs = nn.ModuleList()
         self.ups = nn.ModuleList()
         self.convs = nn.ModuleList()
+        self.input = ConvBlock(in_channels, ls[0])
+        self.output = ConvBlock(ls[0], in_channels)
 
         # down part
-        tmp = [image_size[-1]] + ls
-        for i in range(len(tmp)-1):
-            inc,outc = tmp[i],tmp[i+1]
-            if i==0:
-                self.downs += [Conv(inc, outc)]
-            else:
-                self.downs += [nn.Sequential(Conv(inc, outc),nn.MaxPool2d(2,2))]
+        for i in range(len(ls)-1):
+            inc,outc = ls[i],ls[i+1]
+            self.downs += [nn.Sequential(nn.MaxPool2d(2,2), ConvBlock(inc, outc))]
 
         # up part
         ls2 = ls[::-1]
         for i in range(len(ls2)-1):
             inc, outc = ls2[i], ls2[i+1]
             self.ups += [nn.ConvTranspose2d(inc, outc, kernel_size=2, stride=2)]
-            self.convs += [Conv(inc,outc)]
+            self.convs += [ConvBlock(inc,outc)]
 
 
     def forward(self, x):
-        ds = []
+        
+        x = self.input(x)
+        ds = [x]
         for down in self.downs:
             x = down(x)
             ds.append(x)
@@ -64,14 +64,15 @@ class Unet(nn.Module):
             t = ds.pop()
             x = torch.cat((x,t),1)
             x = conv(x)
+        x = self.output(x)
         return x
            
 
 """
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 m = torch.rand([2,3,256,256]).to(device)
-image_size = [256, 256, 3]
 channels = [64, 128, 256, 512, 1024]
-net = Unet(image_size, channels).to(device)
+net = Unet(3, channels).to(device)
 out = net(m)
+print(m.size(),out.size())
 """
